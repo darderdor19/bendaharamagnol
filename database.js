@@ -93,10 +93,12 @@ const db = {
     return await supabase.from('transactions').delete().eq('id', id);
   },
 
-  // Reset Member (Hapus semua riwayat)
+  // Reset Member (Sekarang kita nggak hapus otomatis biar sinkron)
   async resetMember(name) {
-    const memberId = await getMemberId(name);
-    return await supabase.from('transactions').delete().eq('member_id', memberId);
+    // const memberId = await getMemberId(name);
+    // return await supabase.from('transactions').delete().eq('member_id', memberId);
+    console.log(`Member ${name} lunas, riwayat tetap disimpan.`);
+    return true;
   }
 };
 
