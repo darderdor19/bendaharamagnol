@@ -1,5 +1,5 @@
 /**
- * api/index.js — The Ultimate Vercel Handler (Fixed & Complete)
+ * api/index.js — The Ultimate Vercel Handler (With Debug Logs)
  */
 require('dotenv').config();
 const express = require('express');
@@ -23,10 +23,15 @@ function cap(s) { return s.charAt(0).toUpperCase() + s.slice(1); }
 app.post('/api/bot', async (req, res) => {
   try {
     const { message, callback_query } = req.body;
+    console.log('--- BOT REQUEST RECEIVED ---');
+    console.log('Body:', JSON.stringify(req.body).substring(0, 200));
+
     if (callback_query) {
       const chatId = callback_query.message.chat.id;
       const data = callback_query.data;
+      console.log('Action:', data);
       await bot.answerCallbackQuery(callback_query.id);
+      
       if (data.startsWith('mb:')) {
         const m = data.slice(3);
         const d = await db.getMemberDetail(m);
@@ -46,15 +51,19 @@ app.post('/api/bot', async (req, res) => {
         });
       }
     }
+
     if (message && message.text) {
       const chatId = message.chat.id;
       const text = message.text;
+      console.log('Text received:', text);
+
       if (text === '/start') {
         await supabase.from('bot_state').delete().eq('chat_id', chatId);
         return await bot.sendMessage(chatId, '🏦 *Bendahara Tongkrongan*\n\nPilih member:', {
           parse_mode: 'Markdown', reply_markup: { inline_keyboard: [[{ text: '👤 Darderdor', callback_data: 'mb:darderdor' }, { text: '👤 Diosg', callback_data: 'mb:diosg' }],[{ text: '👤 Nehru', callback_data: 'mb:nehru' }, { text: '👤 Firdiads', callback_data: 'mb:firdiads' }]] }
         });
       }
+
       const { data: state } = await supabase.from('bot_state').select('*').eq('chat_id', chatId).single();
       if (state) {
         if (state.step === 'amount') {
@@ -80,18 +89,17 @@ app.post('/api/bot', async (req, res) => {
       }
     }
     res.sendStatus(200);
-  } catch (e) { res.sendStatus(200); }
+  } catch (e) { 
+    console.error('❌ BOT ERROR:', e.message);
+    res.sendStatus(200); 
+  }
 });
 
-// ── API DASHBOARD (LENGKAP!) ──────────────────────────────────────
+// ── API DASHBOARD ────────────────────────────────────────────────
 app.get('/api/members', async (req, res) => {
   try { 
     const data = await db.getAllMembers();
-    res.json({ 
-      success: true, 
-      data, 
-      database_url: process.env.SUPABASE_URL // INI KTP DATABASE-NYA
-    }); 
+    res.json({ success: true, data, database_url: process.env.SUPABASE_URL }); 
   }
   catch (e) { res.status(500).json({ success: false, message: e.message }); }
 });
