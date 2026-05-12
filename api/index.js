@@ -1,5 +1,5 @@
 /**
- * api/index.js — Final Vercel Fix
+ * api/index.js — Full Features + Rekap Menu
  */
 require('dotenv').config();
 const express = require('express');
@@ -29,6 +29,7 @@ app.post('/api/bot', async (req, res) => {
       const data = callback_query.data;
       await bot.answerCallbackQuery(callback_query.id);
       
+      // Detail Member
       if (data.startsWith('mb:')) {
         const m = data.slice(3);
         const d = await db.getMemberDetail(m);
@@ -36,15 +37,30 @@ app.post('/api/bot', async (req, res) => {
           parse_mode: 'Markdown', reply_markup: { inline_keyboard: [[{ text: '💸 Tambah Hutang', callback_data: `act:debt:${m}` }, { text: '✅ Bayar Hutang', callback_data: `act:pay:${m}` }],[{ text: '🔙 Kembali', callback_data: 'start' }]] }
         });
       }
+      // Action (Debt/Pay)
       else if (data.startsWith('act:')) {
         const [, action, m] = data.split(':');
         await supabase.from('bot_state').upsert({ chat_id: chatId, member: m, action, step: 'amount' });
         await bot.sendMessage(chatId, `💬 *Masukkan jumlah* untuk *${cap(m)}*:`, { parse_mode: 'Markdown' });
       }
+      // REKAP SEMUA MEMBER (Fitur Baru!)
+      else if (data === 'rekap_semua') {
+        const members = await db.getAllMembers();
+        let txt = '📊 *REKAP HUTANG SEMUA MEMBER*\n─────────────────\n';
+        members.forEach(m => {
+          txt += `👤 *${cap(m.name)}*\n   Hutang: ${rp(m.total_debt)}\n   Sisa: *${m.remaining <= 0 ? 'LUNAS' : rp(m.remaining)}*\n\n`;
+        });
+        await bot.sendMessage(chatId, txt, { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [[{ text: '🔙 Kembali', callback_data: 'start' }]] } });
+      }
+      // Menu Utama
       else if (data === 'start') {
         await supabase.from('bot_state').delete().eq('chat_id', chatId);
-        await bot.sendMessage(chatId, '🏦 *Bendahara Tongkrongan*\n\nPilih member:', {
-          parse_mode: 'Markdown', reply_markup: { inline_keyboard: [[{ text: '👤 Darderdor', callback_data: 'mb:darderdor' }, { text: '👤 Diosg', callback_data: 'mb:diosg' }],[{ text: '👤 Nehru', callback_data: 'mb:nehru' }, { text: '👤 Firdiads', callback_data: 'mb:firdiads' }]] }
+        await bot.sendMessage(chatId, '🏦 *Bendahara Tongkrongan*\n\nPilih member atau liat rekap:', {
+          parse_mode: 'Markdown', reply_markup: { inline_keyboard: [
+            [{ text: '👤 Darderdor', callback_data: 'mb:darderdor' }, { text: '👤 Diosg', callback_data: 'mb:diosg' }],
+            [{ text: '👤 Nehru', callback_data: 'mb:nehru' }, { text: '👤 Firdiads', callback_data: 'mb:firdiads' }],
+            [{ text: '📊 Rekap Semua Member', callback_data: 'rekap_semua' }]
+          ] }
         });
       }
     }
@@ -56,8 +72,12 @@ app.post('/api/bot', async (req, res) => {
 
       if (text === '/start') {
         await supabase.from('bot_state').delete().eq('chat_id', chatId);
-        await bot.sendMessage(chatId, '🏦 *Bendahara Tongkrongan*\n\nPilih member:', {
-          parse_mode: 'Markdown', reply_markup: { inline_keyboard: [[{ text: '👤 Darderdor', callback_data: 'mb:darderdor' }, { text: '👤 Diosg', callback_data: 'mb:diosg' }],[{ text: '👤 Nehru', callback_data: 'mb:nehru' }, { text: '👤 Firdiads', callback_data: 'mb:firdiads' }]] }
+        await bot.sendMessage(chatId, '🏦 *Bendahara Tongkrongan*\n\nPilih member atau liat rekap:', {
+          parse_mode: 'Markdown', reply_markup: { inline_keyboard: [
+            [{ text: '👤 Darderdor', callback_data: 'mb:darderdor' }, { text: '👤 Diosg', callback_data: 'mb:diosg' }],
+            [{ text: '👤 Nehru', callback_data: 'mb:nehru' }, { text: '👤 Firdiads', callback_data: 'mb:firdiads' }],
+            [{ text: '📊 Rekap Semua Member', callback_data: 'rekap_semua' }]
+          ] }
         });
       } else {
         const { data: state } = await supabase.from('bot_state').select('*').eq('chat_id', chatId).single();
@@ -92,14 +112,13 @@ app.post('/api/bot', async (req, res) => {
   } catch (e) {
     console.error('❌ BOT ERROR:', e.message);
   } finally {
-    // Baru kirim respon ke Telegram setelah semua kelar
     res.status(200).json({ ok: true });
   }
 });
 
 // ── API DASHBOARD ────────────────────────────────────────────────
 app.get('/api/members', async (req, res) => {
-  try { res.json({ success: true, data: await db.getAllMembers(), db_url: process.env.SUPABASE_URL }); }
+  try { res.json({ success: true, data: await db.getAllMembers() }); }
   catch (e) { res.status(500).json({ success: false }); }
 });
 app.get('/api/member/:name', async (req, res) => {
