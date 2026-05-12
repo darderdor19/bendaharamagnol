@@ -1,28 +1,89 @@
 /**
- * api/index.js — The Ultimate Vercel Handler
+ * api/index.js — The Ultimate Vercel Handler (Fixed & Complete)
  */
 require('dotenv').config();
 const express = require('express');
 const cors    = require('cors');
 const path    = require('path');
 const db      = require('../database');
+const { createClient } = require('@supabase/supabase-js');
 const TelegramBot = require('node-telegram-bot-api');
 
 const app  = express();
 app.use(cors());
 app.use(express.json());
 
-// ── BOT WEBHOOK ──────────────────────────────────────────────────
+const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
 const bot = new TelegramBot(process.env.TELEGRAM_TOKEN);
+
+function rp(n)  { return 'Rp ' + Number(n).toLocaleString('id-ID'); }
+function cap(s) { return s.charAt(0).toUpperCase() + s.slice(1); }
+
+// ── BOT WEBHOOK ──────────────────────────────────────────────────
 app.post('/api/bot', async (req, res) => {
   try {
     const { message, callback_query } = req.body;
-    // ... logic bot tetap sama ...
+    if (callback_query) {
+      const chatId = callback_query.message.chat.id;
+      const data = callback_query.data;
+      await bot.answerCallbackQuery(callback_query.id);
+      if (data.startsWith('mb:')) {
+        const m = data.slice(3);
+        const d = await db.getMemberDetail(m);
+        await bot.sendMessage(chatId, `👤 *${cap(m)}*\n💰 Hutang: ${rp(d.total_debt)}\n💵 Bayar: ${rp(d.total_paid)}\n─────────────────\n📌 Sisa: *${rp(d.remaining)}*`, {
+          parse_mode: 'Markdown', reply_markup: { inline_keyboard: [[{ text: '💸 Tambah Hutang', callback_data: `act:debt:${m}` }, { text: '✅ Bayar Hutang', callback_data: `act:pay:${m}` }],[{ text: '🔙 Kembali', callback_data: 'start' }]] }
+        });
+      }
+      if (data.startsWith('act:')) {
+        const [, action, m] = data.split(':');
+        await supabase.from('bot_state').upsert({ chat_id: chatId, member: m, action, step: 'amount' });
+        await bot.sendMessage(chatId, `💬 *Masukkan jumlah* untuk *${cap(m)}*:`, { parse_mode: 'Markdown' });
+      }
+      if (data === 'start') {
+        await supabase.from('bot_state').delete().eq('chat_id', chatId);
+        await bot.sendMessage(chatId, '🏦 *Bendahara Tongkrongan*\n\nPilih member:', {
+          parse_mode: 'Markdown', reply_markup: { inline_keyboard: [[{ text: '👤 Darderdor', callback_data: 'mb:darderdor' }, { text: '👤 Diosg', callback_data: 'mb:diosg' }],[{ text: '👤 Nehru', callback_data: 'mb:nehru' }, { text: '👤 Firdiads', callback_data: 'mb:firdiads' }]] }
+        });
+      }
+    }
+    if (message && message.text) {
+      const chatId = message.chat.id;
+      const text = message.text;
+      if (text === '/start') {
+        await supabase.from('bot_state').delete().eq('chat_id', chatId);
+        return await bot.sendMessage(chatId, '🏦 *Bendahara Tongkrongan*\n\nPilih member:', {
+          parse_mode: 'Markdown', reply_markup: { inline_keyboard: [[{ text: '👤 Darderdor', callback_data: 'mb:darderdor' }, { text: '👤 Diosg', callback_data: 'mb:diosg' }],[{ text: '👤 Nehru', callback_data: 'mb:nehru' }, { text: '👤 Firdiads', callback_data: 'mb:firdiads' }]] }
+        });
+      }
+      const { data: state } = await supabase.from('bot_state').select('*').eq('chat_id', chatId).single();
+      if (state) {
+        if (state.step === 'amount') {
+          const val = parseInt(text.replace(/[^\d]/g,''), 10);
+          if (!val) return await bot.sendMessage(chatId, '❌ Angka saja!');
+          await supabase.from('bot_state').update({ amount: val, step: 'description' }).eq('chat_id', chatId);
+          return await bot.sendMessage(chatId, `📝 *Keterangan?* (atau 'skip')`);
+        }
+        if (state.step === 'description') {
+          const desc = text.toLowerCase() === 'skip' ? null : text;
+          if (state.action === 'debt') await db.addDebt(state.member, state.amount, desc, new Date().toLocaleDateString('id-ID'));
+          else {
+            await db.addPayment(state.member, state.amount, desc, new Date().toLocaleDateString('id-ID'));
+            const upd = await db.getMemberDetail(state.member);
+            if (upd.remaining <= 0) await db.resetMember(state.member);
+          }
+          await supabase.from('bot_state').delete().eq('chat_id', chatId);
+          const final = await db.getMemberDetail(state.member);
+          return await bot.sendMessage(chatId, `✅ *Berhasil!*\n\nMember: ${cap(state.member)}\nSisa: ${final.remaining <= 0 ? 'LUNAS' : rp(final.remaining)}`, {
+            parse_mode: 'Markdown', reply_markup: { inline_keyboard: [[{ text: '🔙 Menu Utama', callback_data: 'start' }]] }
+          });
+        }
+      }
+    }
     res.sendStatus(200);
   } catch (e) { res.sendStatus(200); }
 });
 
-// ── API DASHBOARD ────────────────────────────────────────────────
+// ── API DASHBOARD (LENGKAP!) ──────────────────────────────────────
 app.get('/api/members', async (req, res) => {
   try { res.json({ success: true, data: await db.getAllMembers() }); }
   catch (e) { res.status(500).json({ success: false, message: e.message }); }
@@ -33,8 +94,40 @@ app.get('/api/member/:name', async (req, res) => {
   catch (e) { res.status(500).json({ success: false }); }
 });
 
-// ── SERVE STATIC FILES (PENTING!) ────────────────────────────────
-// Biar Vercel bisa nampilin HTML-nya dari sini juga
+app.post('/api/debt/add', async (req, res) => {
+  try {
+    const { name, amount, description, debt_date } = req.body;
+    await db.addDebt(name, amount, description, debt_date);
+    res.json({ success: true, data: await db.getMemberDetail(name) });
+  } catch (e) { res.status(500).json({ success: false, message: e.message }); }
+});
+
+app.post('/api/debt/pay', async (req, res) => {
+  try {
+    const { name, amount, description, debt_date } = req.body;
+    await db.addPayment(name, amount, description, debt_date);
+    let check = await db.getMemberDetail(name);
+    let lunas = check.remaining <= 0;
+    if (lunas) await db.resetMember(name);
+    res.json({ success: true, wasReset: lunas, data: await db.getMemberDetail(name) });
+  } catch (e) { res.status(500).json({ success: false }); }
+});
+
+app.delete('/api/transaction/:id', async (req, res) => {
+  try {
+    await db.deleteTransaction(req.params.id);
+    res.json({ success: true });
+  } catch (e) { res.status(500).json({ success: false }); }
+});
+
+app.post('/api/member/:name/reset', async (req, res) => {
+  try {
+    await db.resetMember(req.params.name);
+    res.json({ success: true });
+  } catch (e) { res.status(500).json({ success: false }); }
+});
+
+// ── SERVE STATIC FILES ───────────────────────────────────────────
 app.get('/', (req, res) => res.sendFile(path.join(__dirname, '../index.html')));
 app.get('/app.js', (req, res) => res.sendFile(path.join(__dirname, '../app.js')));
 app.get('/style.css', (req, res) => res.sendFile(path.join(__dirname, '../style.css')));
