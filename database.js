@@ -1,120 +1,103 @@
-const Database = require('better-sqlite3');
-const path = require('path');
+/**
+ * database.js — Supabase Version
+ */
+require('dotenv').config();
+const { createClient } = require('@supabase/supabase-js');
 
-const DB_PATH = path.join(__dirname, 'bendahara.db');
-const db = new Database(DB_PATH);
+const supabaseUrl = process.env.SUPABASE_URL;
+const supabaseKey = process.env.SUPABASE_KEY;
 
-// ── Init tables ───────────────────────────────────────────────────
-db.exec(`
-  CREATE TABLE IF NOT EXISTS members (
-    id         INTEGER PRIMARY KEY AUTOINCREMENT,
-    name       TEXT UNIQUE NOT NULL,
-    created_at TEXT DEFAULT (datetime('now', 'localtime'))
-  );
-
-  CREATE TABLE IF NOT EXISTS transactions (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    member_id   INTEGER NOT NULL,
-    type        TEXT NOT NULL CHECK(type IN ('debt', 'payment')),
-    amount      REAL NOT NULL,
-    description TEXT,
-    debt_date   TEXT,
-    created_at  TEXT DEFAULT (datetime('now', 'localtime')),
-    FOREIGN KEY (member_id) REFERENCES members(id)
-  );
-`);
-
-// ── Migrate: tambah kolom baru jika belum ada (aman untuk DB lama) ─
-const migrate = [
-  `ALTER TABLE transactions ADD COLUMN description TEXT`,
-  `ALTER TABLE transactions ADD COLUMN debt_date TEXT`,
-];
-for (const sql of migrate) {
-  try { db.exec(sql); } catch (_) { /* kolom sudah ada, skip */ }
+if (!supabaseUrl || !supabaseKey) {
+  console.error('❌ SUPABASE_URL atau SUPABASE_KEY tidak ditemukan di .env!');
 }
 
-// ── Seed members ──────────────────────────────────────────────────
-const MEMBERS = ['darderdor', 'diosg', 'nehru', 'firdiads'];
-const insertMember = db.prepare(`INSERT OR IGNORE INTO members (name) VALUES (?)`);
-for (const m of MEMBERS) insertMember.run(m);
+const supabase = createClient(supabaseUrl, supabaseKey);
 
-// ── Helpers ───────────────────────────────────────────────────────
-function todayStr() {
-  return new Date().toLocaleDateString('id-ID', {
-    day: '2-digit', month: '2-digit', year: 'numeric',
-  }); // "12/05/2026"
+// Helper: Ambil ID member berdasarkan nama
+async function getMemberId(name) {
+  const { data, error } = await supabase
+    .from('members')
+    .select('id')
+    .eq('name', name.toLowerCase())
+    .single();
+  if (error || !data) return null;
+  return data.id;
 }
 
-// ── Queries ───────────────────────────────────────────────────────
-function getAllMembers() {
-  return db.prepare(`
-    SELECT
-      m.id, m.name,
-      COALESCE(SUM(CASE WHEN t.type = 'debt'    THEN t.amount ELSE 0 END), 0) AS total_debt,
-      COALESCE(SUM(CASE WHEN t.type = 'payment' THEN t.amount ELSE 0 END), 0) AS total_paid,
-      COALESCE(SUM(CASE WHEN t.type = 'debt' THEN t.amount ELSE -t.amount END), 0) AS remaining
-    FROM members m
-    LEFT JOIN transactions t ON m.id = t.member_id
-    GROUP BY m.id
-    ORDER BY m.name
-  `).all();
-}
+const db = {
+  // Ambil semua member (summary)
+  async getAllMembers() {
+    const { data: members } = await supabase.from('members').select('*');
+    const results = [];
+    for (const m of members) {
+      const detail = await this.getMemberDetail(m.name);
+      results.push(detail);
+    }
+    return results;
+  },
 
-function getMemberByName(name) {
-  return db.prepare(`SELECT * FROM members WHERE name = ?`).get(name);
-}
+  // Ambil detail satu member + transaksi
+  async getMemberDetail(name) {
+    const memberId = await getMemberId(name);
+    if (!memberId) return null;
 
-function getMemberDetail(name) {
-  const member = getMemberByName(name);
-  if (!member) return null;
+    const { data: txs } = await supabase
+      .from('transactions')
+      .select('*')
+      .eq('member_id', memberId)
+      .order('created_at', { ascending: true });
 
-  const stats = db.prepare(`
-    SELECT
-      COALESCE(SUM(CASE WHEN type = 'debt'    THEN amount ELSE 0 END), 0) AS total_debt,
-      COALESCE(SUM(CASE WHEN type = 'payment' THEN amount ELSE 0 END), 0) AS total_paid,
-      COALESCE(SUM(CASE WHEN type = 'debt' THEN amount ELSE -amount END), 0) AS remaining
-    FROM transactions WHERE member_id = ?
-  `).get(member.id);
+    let total_debt = 0;
+    let total_paid = 0;
+    (txs || []).forEach(t => {
+      if (t.type === 'debt') total_debt += Number(t.amount);
+      else total_paid += Number(t.amount);
+    });
 
-  const transactions = db.prepare(`
-    SELECT * FROM transactions
-    WHERE member_id = ?
-    ORDER BY created_at DESC
-    LIMIT 100
-  `).all(member.id);
+    return {
+      id: memberId,
+      name: name.toLowerCase(),
+      total_debt,
+      total_paid,
+      remaining: total_debt - total_paid,
+      transactions: txs || []
+    };
+  },
 
-  return { ...member, ...stats, transactions };
-}
+  // Tambah Hutang
+  async addDebt(name, amount, description, debt_date) {
+    const memberId = await getMemberId(name);
+    return await supabase.from('transactions').insert({
+      member_id: memberId,
+      type: 'debt',
+      amount,
+      description,
+      debt_date
+    });
+  },
 
-function addDebt(name, amount, description, debtDate) {
-  const member = getMemberByName(name);
-  if (!member) throw new Error(`Member "${name}" tidak ditemukan`);
-  return db.prepare(`
-    INSERT INTO transactions (member_id, type, amount, description, debt_date)
-    VALUES (?, 'debt', ?, ?, ?)
-  `).run(member.id, amount, description || null, debtDate || todayStr());
-}
+  // Tambah Pembayaran
+  async addPayment(name, amount, description, debt_date) {
+    const memberId = await getMemberId(name);
+    return await supabase.from('transactions').insert({
+      member_id: memberId,
+      type: 'payment',
+      amount,
+      description,
+      debt_date
+    });
+  },
 
-function addPayment(name, amount, description, debtDate) {
-  const member = getMemberByName(name);
-  if (!member) throw new Error(`Member "${name}" tidak ditemukan`);
-  return db.prepare(`
-    INSERT INTO transactions (member_id, type, amount, description, debt_date)
-    VALUES (?, 'payment', ?, ?, ?)
-  `).run(member.id, amount, description || null, debtDate || todayStr());
-}
+  // Hapus Transaksi
+  async deleteTransaction(id) {
+    return await supabase.from('transactions').delete().eq('id', id);
+  },
 
-function deleteTransaction(id) {
-  return db.prepare(`DELETE FROM transactions WHERE id = ?`).run(id);
-}
-
-function resetMember(name) {
-  const member = getMemberByName(name);
-  if (!member) throw new Error(`Member "${name}" tidak ditemukan`);
-  return db.prepare(`DELETE FROM transactions WHERE member_id = ?`).run(member.id);
-}
-
-module.exports = {
-  getAllMembers, getMemberByName, getMemberDetail,
-  addDebt, addPayment, deleteTransaction, resetMember,
+  // Reset Member (Hapus semua riwayat)
+  async resetMember(name) {
+    const memberId = await getMemberId(name);
+    return await supabase.from('transactions').delete().eq('member_id', memberId);
+  }
 };
+
+module.exports = db;

@@ -1,5 +1,5 @@
 /**
- * bot.js — Bendahara Tongkrongan Telegram Bot
+ * bot.js — Bendahara Tongkrongan Telegram Bot (Supabase Version)
  */
 require('dotenv').config();
 const TelegramBot = require('node-telegram-bot-api');
@@ -23,8 +23,6 @@ function parseDate(input) {
   const parts = s.split('/');
   if (parts.length === 2) return `${parts[0].padStart(2,'0')}/${parts[1].padStart(2,'0')}/${new Date().getFullYear()}`;
   if (parts.length === 3) return `${parts[0].padStart(2,'0')}/${parts[1].padStart(2,'0')}/${parts[2]}`;
-  const dashes = s.split('-');
-  if (dashes.length === 3) return `${dashes[0].padStart(2,'0')}/${dashes[1].padStart(2,'0')}/${dashes[2]}`;
   return s;
 }
 
@@ -40,12 +38,10 @@ function calcStatus(transactions) {
   return map;
 }
 
-function memberStatusText(name) {
-  const d = db.getMemberDetail(name);
-  if (!d) return `Member "${name}" tidak ditemukan.`;
+function memberStatusText(d) {
   const sisa = d.remaining;
   return [
-    `👤 *${cap(name)}*`, '',
+    `👤 *${cap(d.name)}*`, '',
     `💰 Total Hutang : ${rp(d.total_debt)}`,
     `💵 Sudah Bayar  : ${rp(d.total_paid)}`,
     `─────────────────`,
@@ -53,10 +49,8 @@ function memberStatusText(name) {
   ].join('\n');
 }
 
-function historyText(name) {
-  const d = db.getMemberDetail(name);
-  if (!d) return `Member tidak ditemukan.`;
-  const lines = [`📋 *Daftar Hutang — ${cap(name)}*`, '─────────────────'];
+function historyText(d) {
+  const lines = [`📋 *Daftar Hutang — ${cap(d.name)}*`, '─────────────────'];
   const debtItems = (d.transactions||[]).filter(t=>t.type==='debt');
   const statusMap = calcStatus(d.transactions||[]);
   if (debtItems.length === 0) {
@@ -86,8 +80,8 @@ function kbMembers() {
   ]};
 }
 
-function kbActions(member) {
-  const d = db.getMemberDetail(member);
+async function kbActions(member) {
+  const d = await db.getMemberDetail(member);
   const hasTx = (d?.transactions?.length || 0) > 0;
   const rows = [
     [{ text: '💸 Tambah Hutang', callback_data: `act:debt:${member}` }, { text: '✅ Bayar Hutang', callback_data: `act:pay:${member}` }],
@@ -126,7 +120,7 @@ bot.on('callback_query', async (q) => {
   try {
     if (data === 'back') { STATE[chatId] = {}; return editMsg(chatId, msgId, '🏦 *Bendahara Tongkrongan*\n\nPilih member:', { reply_markup: kbMembers() }); }
     if (data === 'rekap') {
-      const all = db.getAllMembers();
+      const all = await db.getAllMembers();
       let txt = '🏦 *Rekap Hutang Semua Member*\n─────────────────\n';
       all.forEach(m => txt += `${m.remaining<=0?'✅':'🔴'} *${cap(m.name)}*: ${m.remaining<=0?'Lunas':rp(m.remaining)}\n`);
       return editMsg(chatId, msgId, txt, { reply_markup: kbMembers() });
@@ -134,11 +128,15 @@ bot.on('callback_query', async (q) => {
     if (data.startsWith('mb:')) {
       const m = data.slice(3);
       STATE[chatId] = { member: m };
-      return editMsg(chatId, msgId, memberStatusText(m) + '\n\n🎯 Pilih aksi:', { reply_markup: kbActions(m) });
+      const d = await db.getMemberDetail(m);
+      return editMsg(chatId, msgId, memberStatusText(d) + '\n\n🎯 Pilih aksi:', { reply_markup: await kbActions(m) });
     }
     if (data.startsWith('act:')) {
       const [, action, m] = data.split(':');
-      if (action === 'history') return editMsg(chatId, msgId, historyText(m), { reply_markup: kbActions(m) });
+      if (action === 'history') {
+        const d = await db.getMemberDetail(m);
+        return editMsg(chatId, msgId, historyText(d), { reply_markup: await kbActions(m) });
+      }
       if (action === 'reset') return editMsg(chatId, msgId, `⚠️ *Reset Hutang ${cap(m)}?*\n\nSemua catatan akan dihapus permanen.`, {
         reply_markup: { inline_keyboard: [[{ text: '✅ Ya, Reset!', callback_data: `conf_res:${m}` }], [{ text: '❌ Batal', callback_data: `mb:${m}` }]] }
       });
@@ -147,8 +145,8 @@ bot.on('callback_query', async (q) => {
     }
     if (data.startsWith('conf_res:')) {
       const m = data.split(':')[1];
-      db.resetMember(m);
-      return editMsg(chatId, msgId, `🎉 *Data ${cap(m)} berhasil direset!*`, { reply_markup: kbActions(m) });
+      await db.resetMember(m);
+      return editMsg(chatId, msgId, `🎉 *Data ${cap(m)} berhasil direset!*`, { reply_markup: await kbActions(m) });
     }
   } catch (e) { sendMsg(chatId, `❌ Error: ${e.message}`); }
 });
@@ -175,20 +173,19 @@ bot.on('message', async (msg) => {
     if (state.step === 'date') {
       const { member, action, amount, description } = state;
       const dDate = parseDate(msg.text);
-      if (action === 'debt') db.addDebt(member, amount, description, dDate);
-      else db.addPayment(member, amount, description, dDate);
+      if (action === 'debt') await db.addDebt(member, amount, description, dDate);
+      else await db.addPayment(member, amount, description, dDate);
 
-      const upd = db.getMemberDetail(member);
+      const upd = await db.getMemberDetail(member);
       
-      // Auto-Reset di Bot
       if (upd.remaining <= 0 && action === 'pay') {
-        db.resetMember(member);
+        await db.resetMember(member);
         STATE[chatId] = {};
-        return sendMsg(chatId, `🎉 *${cap(member)} LUNAS!*\n\nSemua riwayat hutang telah dibersihkan otomatis. Siap buat catatan baru!`, { reply_markup: kbActions(member) });
+        return sendMsg(chatId, `🎉 *${cap(member)} LUNAS!*\n\nSemua riwayat hutang telah dibersihkan otomatis. Siap buat catatan baru!`, { reply_markup: await kbActions(member) });
       }
 
       STATE[chatId] = {};
-      return sendMsg(chatId, `✅ *Berhasil dicatat!*\n\nMember: ${cap(member)}\nJumlah: ${rp(amount)}\nSisa: ${upd.remaining<=0?'Lunas':rp(upd.remaining)}`, { reply_markup: kbActions(member) });
+      return sendMsg(chatId, `✅ *Berhasil dicatat!*\n\nMember: ${cap(member)}\nJumlah: ${rp(amount)}\nSisa: ${upd.remaining<=0?'Lunas':rp(upd.remaining)}`, { reply_markup: await kbActions(member) });
     }
   } catch (e) { STATE[chatId]={}; sendMsg(chatId, `❌ Error: ${e.message}`, { reply_markup: kbMembers() }); }
 });

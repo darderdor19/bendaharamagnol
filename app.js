@@ -16,7 +16,10 @@ function toast(msg, type='') {
 }
 
 async function req(method, url, body) {
-  const baseUrl = 'http://localhost:5000'; 
+  // Kalau buka di laptop pake localhost, kalau online pake link tempat dia nangkring sekarang
+  const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+  const baseUrl = isLocal ? 'http://localhost:5000' : window.location.origin;
+    
   const opts = { 
     method, 
     headers: { 'Content-Type': 'application/json' }
