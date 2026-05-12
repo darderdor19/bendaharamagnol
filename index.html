@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Bendahara Tongkrongan 🏦</title>
+  <meta name="description" content="Tools manajemen hutang tongkrongan - pantau hutang dan pembayaran semua member" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <!-- ── HEADER ───────────────────────────────────────────────── -->
+  <header class="header">
+    <div class="header-inner">
+      <div class="logo">
+        <span class="logo-icon">🏦</span>
+        <div class="logo-text">
+          <h1 class="logo-title">Bendahara Tongkrongan</h1>
+          <p class="logo-sub">Manajemen Hutang &amp; Pembayaran</p>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- ── MAIN ─────────────────────────────────────────────────── -->
+  <main class="main">
+    <div class="section-bar">
+      <h2 class="section-title">Daftar Member</h2>
+      <button class="btn-refresh" id="btnRefresh" onclick="loadDashboard()">
+        <svg class="icon-spin" width="15" height="15" viewBox="0 0 24 24" fill="none"
+          stroke="currentColor" stroke-width="2.5">
+          <path d="M1 4v6h6"/>
+          <path d="M23 20v-6h-6"/>
+          <path d="M20.49 9A9 9 0 0 0 5.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 0 1 3.51 15"/>
+        </svg>
+        Refresh
+      </button>
+    </div>
+
+    <div class="cards-grid" id="cardsGrid">
+      <div class="card skeleton"></div>
+      <div class="card skeleton"></div>
+      <div class="card skeleton"></div>
+      <div class="card skeleton"></div>
+    </div>
+  </main>
+
+  <!-- ── MODAL ─────────────────────────────────────────────────── -->
+  <div class="overlay" id="overlay" onclick="closeModal()">
+    <div class="modal" id="modal" onclick="event.stopPropagation()">
+
+      <div class="modal-head">
+        <div class="modal-title-row">
+          <div class="modal-avatar" id="mAvatar">D</div>
+          <div>
+            <p class="modal-name" id="mName">–</p>
+            <p class="modal-sub" id="mSub">Memuat...</p>
+          </div>
+        </div>
+        <button class="btn-close" onclick="closeModal()" aria-label="Tutup">✕</button>
+      </div>
+
+      <!-- Stats row -->
+      <div class="mstats">
+        <div class="mstat red">
+          <span class="mstat-lbl">Total Hutang</span>
+          <span class="mstat-val" id="mTotalDebt">–</span>
+        </div>
+        <div class="mstat green">
+          <span class="mstat-lbl">Sudah Bayar</span>
+          <span class="mstat-val" id="mTotalPaid">–</span>
+        </div>
+        <div class="mstat gold">
+          <span class="mstat-lbl">Sisa Hutang</span>
+          <span class="mstat-val" id="mRemaining">–</span>
+        </div>
+      </div>
+
+      <!-- Tab selector -->
+      <div class="tabs">
+        <button class="tab active" id="tabDebt" onclick="switchTab('debt')">💸 Tambah Hutang</button>
+        <button class="tab" id="tabPay" onclick="switchTab('pay')">✅ Bayar Hutang</button>
+      </div>
+
+      <!-- Form: tambah hutang -->
+      <div class="form-panel" id="panelDebt">
+        <div class="form-row">
+          <div class="fgroup">
+            <label class="flabel">Jumlah Hutang (Rp)</label>
+            <input type="number" class="finput" id="debtAmount" placeholder="Contoh: 50000" min="1" />
+          </div>
+          <div class="fgroup">
+            <label class="flabel">Tanggal <span class="opt">(default hari ini)</span></label>
+            <input type="date" class="finput" id="debtDate" />
+          </div>
+        </div>
+        <div class="fgroup" style="margin-bottom:12px">
+          <label class="flabel">Keterangan / Hutang Apa <span class="opt">(opsional)</span></label>
+          <input type="text" class="finput" id="debtDesc" placeholder="Misal: makan malam, beli bensin" />
+        </div>
+        <button class="btn-action btn-red" id="btnDebt" onclick="submitDebt()">
+          💸 Tambah Hutang
+        </button>
+      </div>
+
+      <!-- Form: bayar hutang -->
+      <div class="form-panel hidden" id="panelPay">
+        <div class="form-row">
+          <div class="fgroup">
+            <label class="flabel">Jumlah Bayar (Rp)</label>
+            <input type="number" class="finput" id="payAmount" placeholder="Contoh: 50000" min="1" />
+          </div>
+          <div class="fgroup">
+            <label class="flabel">Tanggal <span class="opt">(default hari ini)</span></label>
+            <input type="date" class="finput" id="payDate" />
+          </div>
+        </div>
+        <div class="fgroup" style="margin-bottom:12px">
+          <label class="flabel">Keterangan Pembayaran <span class="opt">(opsional)</span></label>
+          <input type="text" class="finput" id="payDesc" placeholder="Misal: transfer BCA" />
+        </div>
+        <button class="btn-action btn-green" id="btnPay" onclick="submitPay()">
+          ✅ Catat Pembayaran
+        </button>
+      </div>
+
+      <!-- Riwayat transaksi -->
+      <div class="tx-section">
+        <p class="tx-heading">Riwayat Transaksi</p>
+        <div class="tx-list" id="txList">
+          <p class="tx-empty">Belum ada transaksi</p>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Toast notif -->
+  <div class="toast" id="toast"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>
