@@ -1,5 +1,5 @@
 /**
- * api/index.js — Optimized for Vercel (No Timeouts)
+ * api/index.js — Final Vercel Fix
  */
 require('dotenv').config();
 const express = require('express');
@@ -13,7 +13,6 @@ const app  = express();
 app.use(cors());
 app.use(express.json());
 
-// PAKSA POLLING MATI (Biar nggak timeout di Vercel)
 const bot = new TelegramBot(process.env.TELEGRAM_TOKEN, { polling: false });
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
 
@@ -21,11 +20,10 @@ function rp(n)  { return 'Rp ' + Number(n).toLocaleString('id-ID'); }
 function cap(s) { return s.charAt(0).toUpperCase() + s.slice(1); }
 
 app.post('/api/bot', async (req, res) => {
-  // Kirim OK dulu ke Telegram biar nggak timeout
-  res.status(200).send('OK');
-
   try {
     const { message, callback_query } = req.body;
+    
+    // --- HANDLE CALLBACK (TOMBOL) ---
     if (callback_query) {
       const chatId = callback_query.message.chat.id;
       const data = callback_query.data;
@@ -38,12 +36,12 @@ app.post('/api/bot', async (req, res) => {
           parse_mode: 'Markdown', reply_markup: { inline_keyboard: [[{ text: '💸 Tambah Hutang', callback_data: `act:debt:${m}` }, { text: '✅ Bayar Hutang', callback_data: `act:pay:${m}` }],[{ text: '🔙 Kembali', callback_data: 'start' }]] }
         });
       }
-      if (data.startsWith('act:')) {
+      else if (data.startsWith('act:')) {
         const [, action, m] = data.split(':');
         await supabase.from('bot_state').upsert({ chat_id: chatId, member: m, action, step: 'amount' });
         await bot.sendMessage(chatId, `💬 *Masukkan jumlah* untuk *${cap(m)}*:`, { parse_mode: 'Markdown' });
       }
-      if (data === 'start') {
+      else if (data === 'start') {
         await supabase.from('bot_state').delete().eq('chat_id', chatId);
         await bot.sendMessage(chatId, '🏦 *Bendahara Tongkrongan*\n\nPilih member:', {
           parse_mode: 'Markdown', reply_markup: { inline_keyboard: [[{ text: '👤 Darderdor', callback_data: 'mb:darderdor' }, { text: '👤 Diosg', callback_data: 'mb:diosg' }],[{ text: '👤 Nehru', callback_data: 'mb:nehru' }, { text: '👤 Firdiads', callback_data: 'mb:firdiads' }]] }
@@ -51,47 +49,57 @@ app.post('/api/bot', async (req, res) => {
       }
     }
 
+    // --- HANDLE MESSAGE (TEKS) ---
     if (message && message.text) {
       const chatId = message.chat.id;
       const text = message.text;
 
       if (text === '/start') {
         await supabase.from('bot_state').delete().eq('chat_id', chatId);
-        return await bot.sendMessage(chatId, '🏦 *Bendahara Tongkrongan*\n\nPilih member:', {
+        await bot.sendMessage(chatId, '🏦 *Bendahara Tongkrongan*\n\nPilih member:', {
           parse_mode: 'Markdown', reply_markup: { inline_keyboard: [[{ text: '👤 Darderdor', callback_data: 'mb:darderdor' }, { text: '👤 Diosg', callback_data: 'mb:diosg' }],[{ text: '👤 Nehru', callback_data: 'mb:nehru' }, { text: '👤 Firdiads', callback_data: 'mb:firdiads' }]] }
         });
-      }
-
-      const { data: state } = await supabase.from('bot_state').select('*').eq('chat_id', chatId).single();
-      if (state) {
-        if (state.step === 'amount') {
-          const val = parseInt(text.replace(/[^\d]/g,''), 10);
-          if (!val) return await bot.sendMessage(chatId, '❌ Angka saja!');
-          await supabase.from('bot_state').update({ amount: val, step: 'description' }).eq('chat_id', chatId);
-          return await bot.sendMessage(chatId, `📝 *Keterangan?* (atau 'skip')`);
-        }
-        if (state.step === 'description') {
-          const desc = text.toLowerCase() === 'skip' ? null : text;
-          if (state.action === 'debt') await db.addDebt(state.member, state.amount, desc, new Date().toLocaleDateString('id-ID'));
-          else {
-            await db.addPayment(state.member, state.amount, desc, new Date().toLocaleDateString('id-ID'));
-            const upd = await db.getMemberDetail(state.member);
-            if (upd.remaining <= 0) await db.resetMember(state.member);
+      } else {
+        const { data: state } = await supabase.from('bot_state').select('*').eq('chat_id', chatId).single();
+        if (state) {
+          if (state.step === 'amount') {
+            const val = parseInt(text.replace(/[^\d]/g,''), 10);
+            if (!val) {
+              await bot.sendMessage(chatId, '❌ Angka saja!');
+            } else {
+              await supabase.from('bot_state').update({ amount: val, step: 'description' }).eq('chat_id', chatId);
+              await bot.sendMessage(chatId, `📝 *Keterangan?* (atau 'skip')`);
+            }
           }
-          await supabase.from('bot_state').delete().eq('chat_id', chatId);
-          const final = await db.getMemberDetail(state.member);
-          return await bot.sendMessage(chatId, `✅ *Berhasil!*\n\nMember: ${cap(state.member)}\nSisa: ${final.remaining <= 0 ? 'LUNAS' : rp(final.remaining)}`, {
-            parse_mode: 'Markdown', reply_markup: { inline_keyboard: [[{ text: '🔙 Menu Utama', callback_data: 'start' }]] }
-          });
+          else if (state.step === 'description') {
+            const desc = text.toLowerCase() === 'skip' ? null : text;
+            if (state.action === 'debt') {
+              await db.addDebt(state.member, state.amount, desc, new Date().toLocaleDateString('id-ID'));
+            } else {
+              await db.addPayment(state.member, state.amount, desc, new Date().toLocaleDateString('id-ID'));
+              const upd = await db.getMemberDetail(state.member);
+              if (upd.remaining <= 0) await db.resetMember(state.member);
+            }
+            await supabase.from('bot_state').delete().eq('chat_id', chatId);
+            const final = await db.getMemberDetail(state.member);
+            await bot.sendMessage(chatId, `✅ *Berhasil!*\n\nMember: ${cap(state.member)}\nSisa: ${final.remaining <= 0 ? 'LUNAS' : rp(final.remaining)}`, {
+              parse_mode: 'Markdown', reply_markup: { inline_keyboard: [[{ text: '🔙 Menu Utama', callback_data: 'start' }]] }
+            });
+          }
         }
       }
     }
-  } catch (e) { console.error('❌ ERROR:', e.message); }
+  } catch (e) {
+    console.error('❌ BOT ERROR:', e.message);
+  } finally {
+    // Baru kirim respon ke Telegram setelah semua kelar
+    res.status(200).json({ ok: true });
+  }
 });
 
-// ... (API DASHBOARD SAMA SEPERTI SEBELUMNYA) ...
+// ── API DASHBOARD ────────────────────────────────────────────────
 app.get('/api/members', async (req, res) => {
-  try { res.json({ success: true, data: await db.getAllMembers() }); }
+  try { res.json({ success: true, data: await db.getAllMembers(), db_url: process.env.SUPABASE_URL }); }
   catch (e) { res.status(500).json({ success: false }); }
 });
 app.get('/api/member/:name', async (req, res) => {
@@ -102,7 +110,7 @@ app.post('/api/debt/add', async (req, res) => {
   try {
     const { name, amount, description, debt_date } = req.body;
     await db.addDebt(name, amount, description, debt_date);
-    res.json({ success: true, data: await db.getMemberDetail(name) });
+    res.json({ success: true });
   } catch (e) { res.status(500).json({ success: false }); }
 });
 app.post('/api/debt/pay', async (req, res) => {
@@ -111,16 +119,8 @@ app.post('/api/debt/pay', async (req, res) => {
     await db.addPayment(name, amount, description, debt_date);
     let check = await db.getMemberDetail(name);
     if (check.remaining <= 0) await db.resetMember(name);
-    res.json({ success: true, data: await db.getMemberDetail(name) });
+    res.json({ success: true });
   } catch (e) { res.status(500).json({ success: false }); }
-});
-app.delete('/api/transaction/:id', async (req, res) => {
-  try { await db.deleteTransaction(req.params.id); res.json({ success: true }); }
-  catch (e) { res.status(500).json({ success: false }); }
-});
-app.post('/api/member/:name/reset', async (req, res) => {
-  try { await db.resetMember(req.params.name); res.json({ success: true }); }
-  catch (e) { res.status(500).json({ success: false }); }
 });
 
 app.get('/', (req, res) => res.sendFile(path.join(__dirname, '../index.html')));
