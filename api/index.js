@@ -93,16 +93,23 @@ app.post('/api/bot', async (req, res) => {
           }
           else if (state.step === 'description') {
             const desc = text.toLowerCase() === 'skip' ? null : text;
+            let wasReset = false;
             if (state.action === 'debt') {
               await db.addDebt(state.member, state.amount, desc, new Date().toLocaleDateString('id-ID'));
             } else {
               await db.addPayment(state.member, state.amount, desc, new Date().toLocaleDateString('id-ID'));
               const upd = await db.getMemberDetail(state.member);
-              if (upd.remaining <= 0) await db.resetMember(state.member);
+              if (upd.remaining <= 0) {
+                await db.resetMember(state.member);
+                wasReset = true;
+              }
             }
             await supabase.from('bot_state').delete().eq('chat_id', chatId);
             const final = await db.getMemberDetail(state.member);
-            await bot.sendMessage(chatId, `✅ *Berhasil!*\n\nMember: ${cap(state.member)}\nSisa: ${final.remaining <= 0 ? 'LUNAS' : rp(final.remaining)}`, {
+            let msg = `✅ *Berhasil!*\n\nMember: ${cap(state.member)}\nSisa: ${final.remaining <= 0 ? 'LUNAS' : rp(final.remaining)}`;
+            if (wasReset) msg += `\n\n✨ *Hutang Lunas & Riwayat Dibersihkan!*`;
+            
+            await bot.sendMessage(chatId, msg, {
               parse_mode: 'Markdown', reply_markup: { inline_keyboard: [[{ text: '🔙 Menu Utama', callback_data: 'start' }]] }
             });
           }
