@@ -1,5 +1,5 @@
 /**
- * api/index.js — The Ultimate Vercel Handler (With Debug Logs)
+ * api/index.js — Optimized for Vercel (No Timeouts)
  */
 require('dotenv').config();
 const express = require('express');
@@ -13,23 +13,22 @@ const app  = express();
 app.use(cors());
 app.use(express.json());
 
+// PAKSA POLLING MATI (Biar nggak timeout di Vercel)
+const bot = new TelegramBot(process.env.TELEGRAM_TOKEN, { polling: false });
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
-const bot = new TelegramBot(process.env.TELEGRAM_TOKEN);
 
 function rp(n)  { return 'Rp ' + Number(n).toLocaleString('id-ID'); }
 function cap(s) { return s.charAt(0).toUpperCase() + s.slice(1); }
 
-// ── BOT WEBHOOK ──────────────────────────────────────────────────
 app.post('/api/bot', async (req, res) => {
+  // Kirim OK dulu ke Telegram biar nggak timeout
+  res.status(200).send('OK');
+
   try {
     const { message, callback_query } = req.body;
-    console.log('--- BOT REQUEST RECEIVED ---');
-    console.log('Body:', JSON.stringify(req.body).substring(0, 200));
-
     if (callback_query) {
       const chatId = callback_query.message.chat.id;
       const data = callback_query.data;
-      console.log('Action:', data);
       await bot.answerCallbackQuery(callback_query.id);
       
       if (data.startsWith('mb:')) {
@@ -55,7 +54,6 @@ app.post('/api/bot', async (req, res) => {
     if (message && message.text) {
       const chatId = message.chat.id;
       const text = message.text;
-      console.log('Text received:', text);
 
       if (text === '/start') {
         await supabase.from('bot_state').delete().eq('chat_id', chatId);
@@ -88,61 +86,43 @@ app.post('/api/bot', async (req, res) => {
         }
       }
     }
-    res.sendStatus(200);
-  } catch (e) { 
-    console.error('❌ BOT ERROR:', e.message);
-    res.sendStatus(200); 
-  }
+  } catch (e) { console.error('❌ ERROR:', e.message); }
 });
 
-// ── API DASHBOARD ────────────────────────────────────────────────
+// ... (API DASHBOARD SAMA SEPERTI SEBELUMNYA) ...
 app.get('/api/members', async (req, res) => {
-  try { 
-    const data = await db.getAllMembers();
-    res.json({ success: true, data, database_url: process.env.SUPABASE_URL }); 
-  }
-  catch (e) { res.status(500).json({ success: false, message: e.message }); }
+  try { res.json({ success: true, data: await db.getAllMembers() }); }
+  catch (e) { res.status(500).json({ success: false }); }
 });
-
 app.get('/api/member/:name', async (req, res) => {
   try { res.json({ success: true, data: await db.getMemberDetail(req.params.name) }); }
   catch (e) { res.status(500).json({ success: false }); }
 });
-
 app.post('/api/debt/add', async (req, res) => {
   try {
     const { name, amount, description, debt_date } = req.body;
     await db.addDebt(name, amount, description, debt_date);
     res.json({ success: true, data: await db.getMemberDetail(name) });
-  } catch (e) { res.status(500).json({ success: false, message: e.message }); }
+  } catch (e) { res.status(500).json({ success: false }); }
 });
-
 app.post('/api/debt/pay', async (req, res) => {
   try {
     const { name, amount, description, debt_date } = req.body;
     await db.addPayment(name, amount, description, debt_date);
     let check = await db.getMemberDetail(name);
-    let lunas = check.remaining <= 0;
-    if (lunas) await db.resetMember(name);
-    res.json({ success: true, wasReset: lunas, data: await db.getMemberDetail(name) });
+    if (check.remaining <= 0) await db.resetMember(name);
+    res.json({ success: true, data: await db.getMemberDetail(name) });
   } catch (e) { res.status(500).json({ success: false }); }
 });
-
 app.delete('/api/transaction/:id', async (req, res) => {
-  try {
-    await db.deleteTransaction(req.params.id);
-    res.json({ success: true });
-  } catch (e) { res.status(500).json({ success: false }); }
+  try { await db.deleteTransaction(req.params.id); res.json({ success: true }); }
+  catch (e) { res.status(500).json({ success: false }); }
 });
-
 app.post('/api/member/:name/reset', async (req, res) => {
-  try {
-    await db.resetMember(req.params.name);
-    res.json({ success: true });
-  } catch (e) { res.status(500).json({ success: false }); }
+  try { await db.resetMember(req.params.name); res.json({ success: true }); }
+  catch (e) { res.status(500).json({ success: false }); }
 });
 
-// ── SERVE STATIC FILES ───────────────────────────────────────────
 app.get('/', (req, res) => res.sendFile(path.join(__dirname, '../index.html')));
 app.get('/app.js', (req, res) => res.sendFile(path.join(__dirname, '../app.js')));
 app.get('/style.css', (req, res) => res.sendFile(path.join(__dirname, '../style.css')));
