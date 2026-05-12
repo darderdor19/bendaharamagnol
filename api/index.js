@@ -85,7 +85,14 @@ app.post('/api/bot', async (req, res) => {
 
 // ── API DASHBOARD (LENGKAP!) ──────────────────────────────────────
 app.get('/api/members', async (req, res) => {
-  try { res.json({ success: true, data: await db.getAllMembers() }); }
+  try { 
+    const data = await db.getAllMembers();
+    res.json({ 
+      success: true, 
+      data, 
+      database_url: process.env.SUPABASE_URL // INI KTP DATABASE-NYA
+    }); 
+  }
   catch (e) { res.status(500).json({ success: false, message: e.message }); }
 });
 
