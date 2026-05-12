@@ -59,7 +59,8 @@ app.post('/api/bot', async (req, res) => {
           parse_mode: 'Markdown', reply_markup: { inline_keyboard: [
             [{ text: '👤 Darderdor', callback_data: 'mb:darderdor' }, { text: '👤 Diosg', callback_data: 'mb:diosg' }],
             [{ text: '👤 Nehru', callback_data: 'mb:nehru' }, { text: '👤 Firdiads', callback_data: 'mb:firdiads' }],
-            [{ text: '📊 Rekap Semua Member', callback_data: 'rekap_semua' }]
+            [{ text: '📊 Rekap Semua Member', callback_data: 'rekap_semua' }],
+            [{ text: '🌐 Buka Dashboard Web', url: 'https://bendaharamagnol.vercel.app/' }]
           ] }
         });
       }
@@ -72,11 +73,12 @@ app.post('/api/bot', async (req, res) => {
 
       if (text === '/start') {
         await supabase.from('bot_state').delete().eq('chat_id', chatId);
-        await bot.sendMessage(chatId, '🏦 *Bendahara Tongkrongan*\n\nPilih member atau liat rekap:', {
+        await bot.sendMessage(chatId, '🏦 *Bendahara Tongkrongan*\n\nPilih member atau buka dashboard:', {
           parse_mode: 'Markdown', reply_markup: { inline_keyboard: [
             [{ text: '👤 Darderdor', callback_data: 'mb:darderdor' }, { text: '👤 Diosg', callback_data: 'mb:diosg' }],
             [{ text: '👤 Nehru', callback_data: 'mb:nehru' }, { text: '👤 Firdiads', callback_data: 'mb:firdiads' }],
-            [{ text: '📊 Rekap Semua Member', callback_data: 'rekap_semua' }]
+            [{ text: '📊 Rekap Semua Member', callback_data: 'rekap_semua' }],
+            [{ text: '🌐 Buka Dashboard Web', url: 'https://bendaharamagnol.vercel.app/' }]
           ] }
         });
       } else {
