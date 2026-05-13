@@ -1,5 +1,5 @@
 /**
- * api/index.js — Full History + Global Recap
+ * api/index.js — Detailed Global Recap per Member
  */
 require('dotenv').config();
 const express = require('express');
@@ -28,7 +28,7 @@ app.post('/api/bot', async (req, res) => {
       const data = callback_query.data;
       await bot.answerCallbackQuery(callback_query.id);
       
-      // --- DETAIL MEMBER DENGAN HISTORY ---
+      // --- DETAIL MEMBER ---
       if (data.startsWith('mb:')) {
         const m = data.slice(3);
         const d = await db.getMemberDetail(m);
@@ -48,24 +48,24 @@ app.post('/api/bot', async (req, res) => {
           parse_mode: 'Markdown', reply_markup: { inline_keyboard: [[{ text: '💸 Tambah Hutang', callback_data: `act:debt:${m}` }, { text: '✅ Bayar Hutang', callback_data: `act:pay:${m}` }],[{ text: '🔙 Kembali', callback_data: 'start' }]] }
         });
       }
-      // --- REKAP SEMUA + GLOBAL HISTORY ---
+      // --- REKAP SEMUA (DETAIL PER MEMBER) ---
       else if (data === 'rekap_semua') {
         const members = await db.getAllMembers();
-        
-        // 1. Daftar Per Member
         let txt = '📊 *REKAP HUTANG SEMUA MEMBER*\n─────────────────\n';
-        members.forEach(m => {
-          txt += `👤 *${cap(m.name)}* : ${m.remaining <= 0 ? '✅ *LUNAS*' : `*${rp(m.remaining)}*`}\n`;
-        });
-
-        // 2. 10 Transaksi Terakhir (Global)
-        const { data: globalTrans } = await supabase.from('transactions').select('*, members(name)').order('created_at', { ascending: false }).limit(10);
-        if (globalTrans && globalTrans.length > 0) {
-          txt += '\n🕒 *10 Transaksi Terakhir:*\n';
-          globalTrans.forEach(h => {
-            const icon = h.type === 'debt' ? '🔴' : '🟢';
-            txt += `${icon} *${cap(h.members.name)}* - ${rp(h.amount)} _(${h.description || '...'})_\n`;
-          });
+        
+        for (const m of members) {
+          const status = m.remaining <= 0 ? '✅ *LUNAS*' : `*${rp(m.remaining)}*`;
+          txt += `👤 *${cap(m.name)}* : ${status}\n`;
+          
+          // Tambah Rincian di bawah nama (3 transaksi terakhir aja biar nggak kepanjangan)
+          const detail = await db.getMemberDetail(m.name);
+          if (detail.history && detail.history.length > 0) {
+            detail.history.slice(0, 3).forEach(h => {
+              const icon = h.type === 'debt' ? ' - 🔴' : ' - 🟢';
+              txt += `   ${icon} ${h.description || '...'}: ${rp(h.amount)}\n`;
+            });
+          }
+          txt += '\n'; // Kasih jarak antar member
         }
 
         await bot.sendMessage(chatId, txt, { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [[{ text: '🔙 Kembali', callback_data: 'start' }]] } });
