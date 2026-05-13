@@ -133,15 +133,15 @@ function buildCard(m) {
       </div>
 
       <div class="card-summary">
-        <div class="cs-row">
-          <span class="cs-lbl">Total Hutang</span>
-          <span class="cs-val red">${rp(m.total_debt)}</span>
-        </div>
-        <div class="cs-row">
-          <span class="cs-lbl">${isSaldo ? 'Saldo/Deposit' : 'Sisa'}</span>
-          <span class="cs-val ${isSaldo ? 'green' : 'gold'}" style="${isSaldo ? 'color:#00ff88;' : ''}">
-            ${isSaldo ? '+ ' : ''}${m.remaining === 0 ? 'Lunas' : rp(absRem)}
-          </span>
+        <div class="cs-row" style="justify-content: center; padding: 10px 0;">
+          <div style="text-align: center;">
+            <p style="font-size: 12px; color: var(--text3); margin-bottom: 4px; text-transform: uppercase; letter-spacing: 1px;">
+              ${isSaldo ? 'Deposit Saldo' : 'Sisa Hutang'}
+            </p>
+            <p style="font-size: 24px; font-weight: 800; color: ${isSaldo ? '#00ff88' : 'var(--gold)'};">
+              ${isSaldo ? '+ ' : ''}${m.remaining === 0 ? 'LUNAS' : rp(absRem)}
+            </p>
+          </div>
         </div>
       </div>
 

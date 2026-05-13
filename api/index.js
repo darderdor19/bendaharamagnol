@@ -1,5 +1,5 @@
 /**
- * api/index.js — Saldo Feature + No Auto-Reset
+ * api/index.js — Smart UI (3 Colors: Red, Blue, Green)
  */
 require('dotenv').config();
 const express = require('express');
@@ -22,6 +22,18 @@ function rp(n)  {
 }
 function cap(s) { return s.charAt(0).toUpperCase() + s.slice(1); }
 
+// Helper buat nentuin status hutang (Lunas pake deposit atau belum)
+function getStatusMap(history) {
+  const debts = [...history.filter(t => t.type === 'debt')].reverse(); // Urutkan dari yang lama ke baru
+  let paid = history.filter(t => t.type === 'payment').reduce((s, t) => s + t.amount, 0);
+  const map = {};
+  for (const d of debts) {
+    if (paid >= d.amount) { map[d.id] = 'lunas'; paid -= d.amount; }
+    else { map[d.id] = 'belum'; }
+  }
+  return map;
+}
+
 app.post('/api/bot', async (req, res) => {
   try {
     const { message, callback_query } = req.body;
@@ -34,19 +46,23 @@ app.post('/api/bot', async (req, res) => {
       if (data.startsWith('mb:')) {
         const m = data.slice(3);
         const d = await db.getMemberDetail(m);
+        const statusMap = getStatusMap(d.history);
         
         const isSaldo = d.remaining < 0;
-        const statusLabel = isSaldo ? '💰 *Saldo/Deposit*' : '📌 *Sisa Hutang*';
+        const statusLabel = isSaldo ? '💰 *Deposit Saldo*' : '📌 *Sisa Hutang*';
 
         let historyTxt = '\n📖 *Rincian Terakhir:*\n';
         if (d.history && d.history.length > 0) {
           d.history.slice(0, 10).forEach(h => {
-            const icon = h.type === 'debt' ? '🔴' : '🟢';
+            let icon = '🟢'; // Default Bayar
+            if (h.type === 'debt') {
+              icon = statusMap[h.id] === 'lunas' ? '🔵' : '🔴';
+            }
             historyTxt += `${icon} *${rp(h.amount)}* - ${h.description || '...'}\n   _( ${h.debt_date || ''} )_\n`;
           });
         } else { historyTxt += '✨ _Belum ada riwayat._'; }
 
-        await bot.sendMessage(chatId, `👤 *${cap(m)}*\n💰 Total Hutang: ${rp(d.total_debt)}\n💵 Total Bayar: ${rp(d.total_paid)}\n─────────────────\n${statusLabel}: *${rp(d.remaining)}*\n${historyTxt}`, {
+        await bot.sendMessage(chatId, `👤 *${cap(m)}*\n─────────────────\n${statusLabel}: *${d.remaining === 0 ? 'LUNAS' : rp(d.remaining)}*\n${historyTxt}\n_(🔴: Belum, 🔵: Pake Deposit, 🟢: Bayar)_`, {
           parse_mode: 'Markdown', reply_markup: { inline_keyboard: [[{ text: '💸 Tambah Hutang', callback_data: `act:debt:${m}` }, { text: '✅ Bayar Hutang', callback_data: `act:pay:${m}` }],[{ text: '🔙 Kembali', callback_data: 'start' }]] }
         });
       }
@@ -59,9 +75,14 @@ app.post('/api/bot', async (req, res) => {
           txt += `👤 *${cap(m.name)}* : ${status}\n`;
           
           const detail = await db.getMemberDetail(m.name);
+          const statusMap = getStatusMap(detail.history);
           if (detail.history && detail.history.length > 0) {
             detail.history.slice(0, 3).forEach(h => {
-              txt += `   ${h.type === 'debt' ? '-' : '+'} ${h.description || '...'}: ${rp(h.amount)}\n`;
+              let icon = '🟢';
+              if (h.type === 'debt') {
+                icon = statusMap[h.id] === 'lunas' ? '🔵' : '🔴';
+              }
+              txt += `   ${icon} ${h.description || '...'}: ${rp(h.amount)}\n`;
             });
           }
           txt += '\n';
@@ -126,7 +147,7 @@ app.post('/api/bot', async (req, res) => {
             await supabase.from('bot_state').delete().eq('chat_id', chatId);
             const final = await db.getMemberDetail(state.member);
             const isSaldo = final.remaining < 0;
-            const resMsg = isSaldo ? `💰 *Saldo: ${rp(final.remaining)}*` : `📌 *Sisa: ${final.remaining === 0 ? 'LUNAS' : rp(final.remaining)}*`;
+            const resMsg = isSaldo ? `💰 *Deposit Saldo: ${rp(final.remaining)}*` : `📌 *Sisa Hutang: ${final.remaining === 0 ? 'LUNAS' : rp(final.remaining)}*`;
             
             await bot.sendMessage(chatId, `✅ *Berhasil!*\n\nMember: ${cap(state.member)}\n${resMsg}`, {
               parse_mode: 'Markdown', reply_markup: { inline_keyboard: [[{ text: '🔙 Menu Utama', callback_data: 'start' }]] }
