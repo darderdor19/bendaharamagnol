@@ -133,15 +133,19 @@ function buildCard(m) {
       </div>
 
       <div class="card-summary">
-        <div class="cs-row" style="justify-content: center; padding: 10px 0;">
-          <div style="text-align: center;">
-            <p style="font-size: 12px; color: var(--text3); margin-bottom: 4px; text-transform: uppercase; letter-spacing: 1px;">
-              ${isSaldo ? 'Deposit Saldo' : 'Sisa Hutang'}
-            </p>
-            <p style="font-size: 24px; font-weight: 800; color: ${isSaldo ? '#00ff88' : 'var(--gold)'};">
-              ${isSaldo ? '+ ' : ''}${m.remaining === 0 ? 'LUNAS' : rp(absRem)}
-            </p>
-          </div>
+        <!-- Baris Sisa Hutang -->
+        <div class="cs-row">
+          <span class="cs-lbl">Sisa Hutang</span>
+          <span class="cs-val ${!isSaldo && m.remaining > 0 ? 'red' : ''}" style="${!isSaldo && m.remaining > 0 ? 'color:#ff4d4d;' : 'color:var(--text3);'}">
+            ${!isSaldo && m.remaining > 0 ? rp(m.remaining) : 'Rp 0'}
+          </span>
+        </div>
+        <!-- Baris Deposit Saldo -->
+        <div class="cs-row">
+          <span class="cs-lbl">Deposit Saldo</span>
+          <span class="cs-val ${isSaldo ? 'green' : ''}" style="${isSaldo ? 'color:#00ff88;' : 'color:var(--text3);'}">
+            ${isSaldo ? '+ ' + rp(absRem) : 'Rp 0'}
+          </span>
         </div>
       </div>
 
