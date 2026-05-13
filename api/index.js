@@ -1,5 +1,5 @@
 /**
- * api/index.js — Back to Red & Green Icons
+ * api/index.js — Perfect Reset Logic (Reset only if exactly 0)
  */
 require('dotenv').config();
 const express = require('express');
@@ -34,7 +34,6 @@ app.post('/api/bot', async (req, res) => {
       if (data.startsWith('mb:')) {
         const m = data.slice(3);
         const d = await db.getMemberDetail(m);
-        
         const isSaldo = d.remaining < 0;
         const statusLabel = isSaldo ? '💰 *Deposit Saldo*' : '📌 *Sisa Hutang*';
 
@@ -57,7 +56,6 @@ app.post('/api/bot', async (req, res) => {
           const isSaldo = m.remaining < 0;
           const status = m.remaining === 0 ? '✅ *LUNAS*' : `*${rp(m.remaining)}* ${isSaldo ? '(Saldo)' : ''}`;
           txt += `👤 *${cap(m.name)}* : ${status}\n`;
-          
           const detail = await db.getMemberDetail(m.name);
           if (detail.history && detail.history.length > 0) {
             detail.history.slice(0, 3).forEach(h => {
@@ -123,12 +121,21 @@ app.post('/api/bot', async (req, res) => {
             } else {
               await db.addPayment(state.member, state.amount, desc, new Date().toLocaleDateString('id-ID'));
             }
+            
+            // --- LOGIKA PERFECT RESET ---
+            const check = await db.getMemberDetail(state.member);
+            let resetNotif = '';
+            if (check.remaining === 0) {
+              await db.resetMember(state.member);
+              resetNotif = '\n\n✨ *Riwayat dibersihkan (Lunas Sempurna!)*';
+            }
+
             await supabase.from('bot_state').delete().eq('chat_id', chatId);
             const final = await db.getMemberDetail(state.member);
             const isSaldo = final.remaining < 0;
             const resMsg = isSaldo ? `💰 *Deposit Saldo: ${rp(final.remaining)}*` : `📌 *Sisa Hutang: ${final.remaining === 0 ? 'LUNAS' : rp(final.remaining)}*`;
             
-            await bot.sendMessage(chatId, `✅ *Berhasil!*\n\nMember: ${cap(state.member)}\n${resMsg}`, {
+            await bot.sendMessage(chatId, `✅ *Berhasil!*\n\nMember: ${cap(state.member)}\n${resMsg}${resetNotif}`, {
               parse_mode: 'Markdown', reply_markup: { inline_keyboard: [[{ text: '🔙 Menu Utama', callback_data: 'start' }]] }
             });
           }
@@ -151,6 +158,9 @@ app.post('/api/debt/add', async (req, res) => {
   try {
     const { name, amount, description, debt_date } = req.body;
     await db.addDebt(name, amount, description, debt_date);
+    // Reset juga di Web API kalau pas 0
+    const check = await db.getMemberDetail(name);
+    if (check.remaining === 0) await db.resetMember(name);
     res.json({ success: true });
   } catch (e) { res.status(500).json({ success: false }); }
 });
@@ -158,6 +168,9 @@ app.post('/api/debt/pay', async (req, res) => {
   try {
     const { name, amount, description, debt_date } = req.body;
     await db.addPayment(name, amount, description, debt_date);
+    // Reset juga di Web API kalau pas 0
+    const check = await db.getMemberDetail(name);
+    if (check.remaining === 0) await db.resetMember(name);
     res.json({ success: true });
   } catch (e) { res.status(500).json({ success: false }); }
 });
