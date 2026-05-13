@@ -39,28 +39,23 @@ const db = {
   // Ambil detail satu member + transaksi
   async getMemberDetail(name) {
     const memberId = await getMemberId(name);
-    if (!memberId) return null;
+    if (!memberId) return { name, total_debt: 0, total_paid: 0, remaining: 0, history: [] };
 
-    const { data: txs } = await supabase
+    const { data: trans } = await supabase
       .from('transactions')
       .select('*')
       .eq('member_id', memberId)
-      .order('created_at', { ascending: true });
+      .order('created_at', { ascending: false });
 
-    let total_debt = 0;
-    let total_paid = 0;
-    (txs || []).forEach(t => {
-      if (t.type === 'debt') total_debt += Number(t.amount);
-      else total_paid += Number(t.amount);
-    });
+    const debts = (trans || []).filter(t => t.type === 'debt').reduce((s, t) => s + t.amount, 0);
+    const paid  = (trans || []).filter(t => t.type === 'payment').reduce((s, t) => s + t.amount, 0);
 
     return {
-      id: memberId,
-      name: name.toLowerCase(),
-      total_debt,
-      total_paid,
-      remaining: total_debt - total_paid,
-      transactions: txs || []
+      name,
+      total_debt: debts,
+      total_paid: paid,
+      remaining: Math.max(0, debts - paid),
+      history: trans || []
     };
   },
 
