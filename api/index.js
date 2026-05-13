@@ -1,5 +1,5 @@
 /**
- * api/index.js — Full Features + History Detail
+ * api/index.js — Full History + Global Recap
  */
 require('dotenv').config();
 const express = require('express');
@@ -33,34 +33,47 @@ app.post('/api/bot', async (req, res) => {
         const m = data.slice(3);
         const d = await db.getMemberDetail(m);
         
-        let historyTxt = '';
+        let historyTxt = '\n📖 *Rincian Hutang:*\n';
         if (d.history && d.history.length > 0) {
-          historyTxt = '\n📖 *Rincian Hutang:*\n';
-          d.history.slice(0, 5).forEach(h => {
+          d.history.slice(0, 10).forEach(h => {
             const icon = h.type === 'debt' ? '🔴' : '🟢';
-            historyTxt += `${icon} ${h.description || 'Tanpa ket'}: *${rp(h.amount)}*\n`;
+            const date = h.debt_date || '';
+            historyTxt += `${icon} *${rp(h.amount)}* - ${h.description || 'Tanpa ket'}\n   _( ${date} )_\n`;
           });
-          if (d.history.length > 5) historyTxt += '... (dan lainnya)\n';
         } else {
-          historyTxt = '\n✨ *Belum ada riwayat hutang.*';
+          historyTxt += '✨ _Belum ada riwayat._';
         }
 
         await bot.sendMessage(chatId, `👤 *${cap(m)}*\n💰 Hutang: ${rp(d.total_debt)}\n💵 Bayar: ${rp(d.total_paid)}\n─────────────────\n📌 Sisa: *${rp(d.remaining)}*\n${historyTxt}`, {
           parse_mode: 'Markdown', reply_markup: { inline_keyboard: [[{ text: '💸 Tambah Hutang', callback_data: `act:debt:${m}` }, { text: '✅ Bayar Hutang', callback_data: `act:pay:${m}` }],[{ text: '🔙 Kembali', callback_data: 'start' }]] }
         });
       }
+      // --- REKAP SEMUA + GLOBAL HISTORY ---
+      else if (data === 'rekap_semua') {
+        const members = await db.getAllMembers();
+        
+        // 1. Daftar Per Member
+        let txt = '📊 *REKAP HUTANG SEMUA MEMBER*\n─────────────────\n';
+        members.forEach(m => {
+          txt += `👤 *${cap(m.name)}* : ${m.remaining <= 0 ? '✅ *LUNAS*' : `*${rp(m.remaining)}*`}\n`;
+        });
+
+        // 2. 10 Transaksi Terakhir (Global)
+        const { data: globalTrans } = await supabase.from('transactions').select('*, members(name)').order('created_at', { ascending: false }).limit(10);
+        if (globalTrans && globalTrans.length > 0) {
+          txt += '\n🕒 *10 Transaksi Terakhir:*\n';
+          globalTrans.forEach(h => {
+            const icon = h.type === 'debt' ? '🔴' : '🟢';
+            txt += `${icon} *${cap(h.members.name)}* - ${rp(h.amount)} _(${h.description || '...'})_\n`;
+          });
+        }
+
+        await bot.sendMessage(chatId, txt, { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [[{ text: '🔙 Kembali', callback_data: 'start' }]] } });
+      }
       else if (data.startsWith('act:')) {
         const [, action, m] = data.split(':');
         await supabase.from('bot_state').upsert({ chat_id: chatId, member: m, action, step: 'amount' });
         await bot.sendMessage(chatId, `💬 *Masukkan jumlah* untuk *${cap(m)}*:`, { parse_mode: 'Markdown' });
-      }
-      else if (data === 'rekap_semua') {
-        const members = await db.getAllMembers();
-        let txt = '📊 *REKAP HUTANG SEMUA MEMBER*\n─────────────────\n';
-        members.forEach(m => {
-          txt += `👤 *${cap(m.name)}*\n   Hutang: ${rp(m.total_debt)}\n   Sisa: *${m.remaining <= 0 ? 'LUNAS' : rp(m.remaining)}*\n\n`;
-        });
-        await bot.sendMessage(chatId, txt, { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [[{ text: '🔙 Kembali', callback_data: 'start' }]] } });
       }
       else if (data === 'start') {
         await supabase.from('bot_state').delete().eq('chat_id', chatId);
@@ -137,7 +150,7 @@ app.post('/api/bot', async (req, res) => {
   }
 });
 
-// API DASHBOARD TETAP SAMA...
+// API DASHBOARD ...
 app.get('/api/members', async (req, res) => {
   try { res.json({ success: true, data: await db.getAllMembers() }); }
   catch (e) { res.status(500).json({ success: false }); }
