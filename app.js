@@ -1,6 +1,6 @@
 /* app.js — Bendahara Tongkrongan */
 
-const MEMBERS_ORDER = ['darderdor', 'diosg', 'nehru', 'firdiads', 'nadine', 'ogut', 'scott'];
+const MEMBERS_ORDER = ['darderdor', 'diosg', 'nehru', 'firdiads', 'nadine', 'ogut', 'scott', 'ramdjar', 'ares'];
 const AV_CLASS      = ['av-0', 'av-1', 'av-2', 'av-3'];
 let currentMember = null;
 

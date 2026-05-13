@@ -1,5 +1,5 @@
 /**
- * api/index.js — Full Features + Rekap Menu
+ * api/index.js — Full Features + History Detail
  */
 require('dotenv').config();
 const express = require('express');
@@ -23,27 +23,37 @@ app.post('/api/bot', async (req, res) => {
   try {
     const { message, callback_query } = req.body;
     
-    // --- HANDLE CALLBACK (TOMBOL) ---
     if (callback_query) {
       const chatId = callback_query.message.chat.id;
       const data = callback_query.data;
       await bot.answerCallbackQuery(callback_query.id);
       
-      // Detail Member
+      // --- DETAIL MEMBER DENGAN HISTORY ---
       if (data.startsWith('mb:')) {
         const m = data.slice(3);
         const d = await db.getMemberDetail(m);
-        await bot.sendMessage(chatId, `👤 *${cap(m)}*\n💰 Hutang: ${rp(d.total_debt)}\n💵 Bayar: ${rp(d.total_paid)}\n─────────────────\n📌 Sisa: *${rp(d.remaining)}*`, {
+        
+        let historyTxt = '';
+        if (d.history && d.history.length > 0) {
+          historyTxt = '\n📖 *Rincian Hutang:*\n';
+          d.history.slice(0, 5).forEach(h => {
+            const icon = h.type === 'debt' ? '🔴' : '🟢';
+            historyTxt += `${icon} ${h.description || 'Tanpa ket'}: *${rp(h.amount)}*\n`;
+          });
+          if (d.history.length > 5) historyTxt += '... (dan lainnya)\n';
+        } else {
+          historyTxt = '\n✨ *Belum ada riwayat hutang.*';
+        }
+
+        await bot.sendMessage(chatId, `👤 *${cap(m)}*\n💰 Hutang: ${rp(d.total_debt)}\n💵 Bayar: ${rp(d.total_paid)}\n─────────────────\n📌 Sisa: *${rp(d.remaining)}*\n${historyTxt}`, {
           parse_mode: 'Markdown', reply_markup: { inline_keyboard: [[{ text: '💸 Tambah Hutang', callback_data: `act:debt:${m}` }, { text: '✅ Bayar Hutang', callback_data: `act:pay:${m}` }],[{ text: '🔙 Kembali', callback_data: 'start' }]] }
         });
       }
-      // Action (Debt/Pay)
       else if (data.startsWith('act:')) {
         const [, action, m] = data.split(':');
         await supabase.from('bot_state').upsert({ chat_id: chatId, member: m, action, step: 'amount' });
         await bot.sendMessage(chatId, `💬 *Masukkan jumlah* untuk *${cap(m)}*:`, { parse_mode: 'Markdown' });
       }
-      // REKAP SEMUA MEMBER (Fitur Baru!)
       else if (data === 'rekap_semua') {
         const members = await db.getAllMembers();
         let txt = '📊 *REKAP HUTANG SEMUA MEMBER*\n─────────────────\n';
@@ -52,15 +62,15 @@ app.post('/api/bot', async (req, res) => {
         });
         await bot.sendMessage(chatId, txt, { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [[{ text: '🔙 Kembali', callback_data: 'start' }]] } });
       }
-      // Menu Utama
       else if (data === 'start') {
         await supabase.from('bot_state').delete().eq('chat_id', chatId);
-        await bot.sendMessage(chatId, '🏦 *Bendahara Tongkrongan*\n\nPilih member atau liat rekap:', {
+        await bot.sendMessage(chatId, '🏦 *Bendahara Tongkrongan*\n\nPilih member atau buka dashboard:', {
           parse_mode: 'Markdown', reply_markup: { inline_keyboard: [
             [{ text: '👤 Darderdor', callback_data: 'mb:darderdor' }, { text: '👤 Diosg', callback_data: 'mb:diosg' }],
             [{ text: '👤 Nehru', callback_data: 'mb:nehru' }, { text: '👤 Firdiads', callback_data: 'mb:firdiads' }],
             [{ text: '👤 Kak Nadine', callback_data: 'mb:nadine' }, { text: '👤 Bang Ogut', callback_data: 'mb:ogut' }],
-            [{ text: '👤 Scott', callback_data: 'mb:scott' }],
+            [{ text: '👤 Scott', callback_data: 'mb:scott' }, { text: '👤 Ramdjar', callback_data: 'mb:ramdjar' }],
+            [{ text: '👤 Ares', callback_data: 'mb:ares' }],
             [{ text: '📊 Rekap Semua Member', callback_data: 'rekap_semua' }],
             [{ text: '🌐 Buka Dashboard Web', url: 'https://bendaharamagnol.vercel.app/' }]
           ] }
@@ -68,11 +78,9 @@ app.post('/api/bot', async (req, res) => {
       }
     }
 
-    // --- HANDLE MESSAGE (TEKS) ---
     if (message && message.text) {
       const chatId = message.chat.id;
       const text = message.text;
-
       if (text === '/start') {
         await supabase.from('bot_state').delete().eq('chat_id', chatId);
         await bot.sendMessage(chatId, '🏦 *Bendahara Tongkrongan*\n\nPilih member atau buka dashboard:', {
@@ -80,7 +88,8 @@ app.post('/api/bot', async (req, res) => {
             [{ text: '👤 Darderdor', callback_data: 'mb:darderdor' }, { text: '👤 Diosg', callback_data: 'mb:diosg' }],
             [{ text: '👤 Nehru', callback_data: 'mb:nehru' }, { text: '👤 Firdiads', callback_data: 'mb:firdiads' }],
             [{ text: '👤 Kak Nadine', callback_data: 'mb:nadine' }, { text: '👤 Bang Ogut', callback_data: 'mb:ogut' }],
-            [{ text: '👤 Scott', callback_data: 'mb:scott' }],
+            [{ text: '👤 Scott', callback_data: 'mb:scott' }, { text: '👤 Ramdjar', callback_data: 'mb:ramdjar' }],
+            [{ text: '👤 Ares', callback_data: 'mb:ares' }],
             [{ text: '📊 Rekap Semua Member', callback_data: 'rekap_semua' }],
             [{ text: '🌐 Buka Dashboard Web', url: 'https://bendaharamagnol.vercel.app/' }]
           ] }
@@ -114,7 +123,6 @@ app.post('/api/bot', async (req, res) => {
             const final = await db.getMemberDetail(state.member);
             let msg = `✅ *Berhasil!*\n\nMember: ${cap(state.member)}\nSisa: ${final.remaining <= 0 ? 'LUNAS' : rp(final.remaining)}`;
             if (wasReset) msg += `\n\n✨ *Hutang Lunas & Riwayat Dibersihkan!*`;
-            
             await bot.sendMessage(chatId, msg, {
               parse_mode: 'Markdown', reply_markup: { inline_keyboard: [[{ text: '🔙 Menu Utama', callback_data: 'start' }]] }
             });
@@ -129,7 +137,7 @@ app.post('/api/bot', async (req, res) => {
   }
 });
 
-// ── API DASHBOARD ────────────────────────────────────────────────
+// API DASHBOARD TETAP SAMA...
 app.get('/api/members', async (req, res) => {
   try { res.json({ success: true, data: await db.getAllMembers() }); }
   catch (e) { res.status(500).json({ success: false }); }
