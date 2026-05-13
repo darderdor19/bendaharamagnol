@@ -83,7 +83,7 @@ function buildCard(m) {
     ? `<span class="badge badge-debt">⚠️ Masih Hutang</span>`
     : `<span class="badge badge-lunas">✅ Lunas</span>`;
 
-  const txs    = m.transactions || [];
+  const txs    = m.history || [];
   const statusMap = calcStatus(txs);
 
   // Hanya tampilkan hutang (debt) di list kartu, payments hanya mempengaruhi status
