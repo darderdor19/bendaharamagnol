@@ -78,20 +78,21 @@ async function loadDashboard() {
 
 function buildCard(m) {
   const idx     = avIdx(m.name);
-  const hasDebt = m.remaining > 0;
-  const badge   = hasDebt
-    ? `<span class="badge badge-debt">⚠️ Masih Hutang</span>`
-    : `<span class="badge badge-lunas">✅ Lunas</span>`;
+  const isSaldo = m.remaining < 0;
+  const absRem  = Math.abs(m.remaining);
+
+  const badge = m.remaining === 0 
+    ? `<span class="badge badge-lunas">✅ Lunas</span>`
+    : isSaldo 
+      ? `<span class="badge" style="background:rgba(0,255,136,0.1); color:#00ff88; border:1px solid rgba(0,255,136,0.2);">💰 Saldo/Deposit</span>`
+      : `<span class="badge badge-debt">⚠️ Masih Hutang</span>`;
 
   const txs    = m.history || [];
   const statusMap = calcStatus(txs);
-
-  // Hanya tampilkan hutang (debt) di list kartu, payments hanya mempengaruhi status
   const debtList = txs.filter(t=>t.type==='debt');
   const payList  = txs.filter(t=>t.type==='payment');
 
   let listHTML = '';
-
   if (debtList.length === 0) {
     listHTML = `<p class="cl-empty">Belum ada hutang</p>`;
   } else {
@@ -100,13 +101,11 @@ function buildCard(m) {
       const badgeTx = status === 'lunas'
         ? `<span class="cl-badge cl-lunas">Lunas</span>`
         : `<span class="cl-badge cl-belum">Belum</span>`;
-      const desc = t.description || '';
-      const tgl  = t.debt_date   || '–';
       return `
         <div class="cl-item">
           <div class="cl-left">
-            <span class="cl-tgl">📅 ${tgl}</span>
-            ${desc ? `<span class="cl-desc">${desc}</span>` : ''}
+            <span class="cl-tgl">📅 ${t.debt_date || '–'}</span>
+            ${t.description ? `<span class="cl-desc">${t.description}</span>` : ''}
           </div>
           <div class="cl-right">
             <span class="cl-amount">${rp(t.amount)}</span>
@@ -116,7 +115,6 @@ function buildCard(m) {
     }).join('');
   }
 
-  // Tampilkan juga total pembayaran jika ada
   const payInfo = payList.length > 0
     ? `<div class="cl-pay-row">
         <span class="cl-pay-lbl">💵 Total Terbayar</span>
@@ -140,8 +138,10 @@ function buildCard(m) {
           <span class="cs-val red">${rp(m.total_debt)}</span>
         </div>
         <div class="cs-row">
-          <span class="cs-lbl">Sisa</span>
-          <span class="cs-val gold">${m.remaining <= 0 ? '✅ Lunas' : rp(m.remaining)}</span>
+          <span class="cs-lbl">${isSaldo ? 'Saldo/Deposit' : 'Sisa'}</span>
+          <span class="cs-val ${isSaldo ? 'green' : 'gold'}" style="${isSaldo ? 'color:#00ff88;' : ''}">
+            ${isSaldo ? '+ ' : ''}${m.remaining === 0 ? 'Lunas' : rp(absRem)}
+          </span>
         </div>
       </div>
 

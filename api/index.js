@@ -1,5 +1,5 @@
 /**
- * api/index.js — Detailed Global Recap per Member
+ * api/index.js — Saldo Feature + No Auto-Reset
  */
 require('dotenv').config();
 const express = require('express');
@@ -16,7 +16,10 @@ app.use(express.json());
 const bot = new TelegramBot(process.env.TELEGRAM_TOKEN, { polling: false });
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
 
-function rp(n)  { return 'Rp ' + Number(n).toLocaleString('id-ID'); }
+function rp(n)  { 
+  const val = Math.abs(n);
+  return (n < 0 ? '+ ' : '') + 'Rp ' + Number(val).toLocaleString('id-ID'); 
+}
 function cap(s) { return s.charAt(0).toUpperCase() + s.slice(1); }
 
 app.post('/api/bot', async (req, res) => {
@@ -28,46 +31,41 @@ app.post('/api/bot', async (req, res) => {
       const data = callback_query.data;
       await bot.answerCallbackQuery(callback_query.id);
       
-      // --- DETAIL MEMBER ---
       if (data.startsWith('mb:')) {
         const m = data.slice(3);
         const d = await db.getMemberDetail(m);
         
-        let historyTxt = '\n📖 *Rincian Hutang:*\n';
+        const isSaldo = d.remaining < 0;
+        const statusLabel = isSaldo ? '💰 *Saldo/Deposit*' : '📌 *Sisa Hutang*';
+
+        let historyTxt = '\n📖 *Rincian Terakhir:*\n';
         if (d.history && d.history.length > 0) {
           d.history.slice(0, 10).forEach(h => {
             const icon = h.type === 'debt' ? '🔴' : '🟢';
-            const date = h.debt_date || '';
-            historyTxt += `${icon} *${rp(h.amount)}* - ${h.description || 'Tanpa ket'}\n   _( ${date} )_\n`;
+            historyTxt += `${icon} *${rp(h.amount)}* - ${h.description || '...'}\n   _( ${h.debt_date || ''} )_\n`;
           });
-        } else {
-          historyTxt += '✨ _Belum ada riwayat._';
-        }
+        } else { historyTxt += '✨ _Belum ada riwayat._'; }
 
-        await bot.sendMessage(chatId, `👤 *${cap(m)}*\n💰 Hutang: ${rp(d.total_debt)}\n💵 Bayar: ${rp(d.total_paid)}\n─────────────────\n📌 Sisa: *${rp(d.remaining)}*\n${historyTxt}`, {
+        await bot.sendMessage(chatId, `👤 *${cap(m)}*\n💰 Total Hutang: ${rp(d.total_debt)}\n💵 Total Bayar: ${rp(d.total_paid)}\n─────────────────\n${statusLabel}: *${rp(d.remaining)}*\n${historyTxt}`, {
           parse_mode: 'Markdown', reply_markup: { inline_keyboard: [[{ text: '💸 Tambah Hutang', callback_data: `act:debt:${m}` }, { text: '✅ Bayar Hutang', callback_data: `act:pay:${m}` }],[{ text: '🔙 Kembali', callback_data: 'start' }]] }
         });
       }
-      // --- REKAP SEMUA (DETAIL PER MEMBER) ---
       else if (data === 'rekap_semua') {
         const members = await db.getAllMembers();
-        let txt = '📊 *REKAP HUTANG SEMUA MEMBER*\n─────────────────\n';
-        
+        let txt = '📊 *REKAP SEMUA MEMBER*\n─────────────────\n';
         for (const m of members) {
-          const status = m.remaining <= 0 ? '✅ *LUNAS*' : `*${rp(m.remaining)}*`;
+          const isSaldo = m.remaining < 0;
+          const status = m.remaining === 0 ? '✅ *LUNAS*' : `*${rp(m.remaining)}* ${isSaldo ? '(Saldo)' : ''}`;
           txt += `👤 *${cap(m.name)}* : ${status}\n`;
           
-          // Tambah Rincian di bawah nama (3 transaksi terakhir aja biar nggak kepanjangan)
           const detail = await db.getMemberDetail(m.name);
           if (detail.history && detail.history.length > 0) {
             detail.history.slice(0, 3).forEach(h => {
-              const icon = h.type === 'debt' ? ' - 🔴' : ' - 🟢';
-              txt += `   ${icon} ${h.description || '...'}: ${rp(h.amount)}\n`;
+              txt += `   ${h.type === 'debt' ? '-' : '+'} ${h.description || '...'}: ${rp(h.amount)}\n`;
             });
           }
-          txt += '\n'; // Kasih jarak antar member
+          txt += '\n';
         }
-
         await bot.sendMessage(chatId, txt, { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [[{ text: '🔙 Kembali', callback_data: 'start' }]] } });
       }
       else if (data.startsWith('act:')) {
@@ -112,45 +110,35 @@ app.post('/api/bot', async (req, res) => {
         if (state) {
           if (state.step === 'amount') {
             const val = parseInt(text.replace(/[^\d]/g,''), 10);
-            if (!val) {
-              await bot.sendMessage(chatId, '❌ Angka saja!');
-            } else {
+            if (!val) { await bot.sendMessage(chatId, '❌ Angka saja!'); }
+            else {
               await supabase.from('bot_state').update({ amount: val, step: 'description' }).eq('chat_id', chatId);
               await bot.sendMessage(chatId, `📝 *Keterangan?* (atau 'skip')`);
             }
           }
           else if (state.step === 'description') {
             const desc = text.toLowerCase() === 'skip' ? null : text;
-            let wasReset = false;
             if (state.action === 'debt') {
               await db.addDebt(state.member, state.amount, desc, new Date().toLocaleDateString('id-ID'));
             } else {
               await db.addPayment(state.member, state.amount, desc, new Date().toLocaleDateString('id-ID'));
-              const upd = await db.getMemberDetail(state.member);
-              if (upd.remaining <= 0) {
-                await db.resetMember(state.member);
-                wasReset = true;
-              }
             }
             await supabase.from('bot_state').delete().eq('chat_id', chatId);
             const final = await db.getMemberDetail(state.member);
-            let msg = `✅ *Berhasil!*\n\nMember: ${cap(state.member)}\nSisa: ${final.remaining <= 0 ? 'LUNAS' : rp(final.remaining)}`;
-            if (wasReset) msg += `\n\n✨ *Hutang Lunas & Riwayat Dibersihkan!*`;
-            await bot.sendMessage(chatId, msg, {
+            const isSaldo = final.remaining < 0;
+            const resMsg = isSaldo ? `💰 *Saldo: ${rp(final.remaining)}*` : `📌 *Sisa: ${final.remaining === 0 ? 'LUNAS' : rp(final.remaining)}*`;
+            
+            await bot.sendMessage(chatId, `✅ *Berhasil!*\n\nMember: ${cap(state.member)}\n${resMsg}`, {
               parse_mode: 'Markdown', reply_markup: { inline_keyboard: [[{ text: '🔙 Menu Utama', callback_data: 'start' }]] }
             });
           }
         }
       }
     }
-  } catch (e) {
-    console.error('❌ BOT ERROR:', e.message);
-  } finally {
-    res.status(200).json({ ok: true });
-  }
+  } catch (e) { console.error('❌ BOT ERROR:', e.message); }
+  finally { res.status(200).json({ ok: true }); }
 });
 
-// API DASHBOARD ...
 app.get('/api/members', async (req, res) => {
   try { res.json({ success: true, data: await db.getAllMembers() }); }
   catch (e) { res.status(500).json({ success: false }); }
@@ -170,8 +158,6 @@ app.post('/api/debt/pay', async (req, res) => {
   try {
     const { name, amount, description, debt_date } = req.body;
     await db.addPayment(name, amount, description, debt_date);
-    let check = await db.getMemberDetail(name);
-    if (check.remaining <= 0) await db.resetMember(name);
     res.json({ success: true });
   } catch (e) { res.status(500).json({ success: false }); }
 });
@@ -179,5 +165,4 @@ app.post('/api/debt/pay', async (req, res) => {
 app.get('/', (req, res) => res.sendFile(path.join(__dirname, '../index.html')));
 app.get('/app.js', (req, res) => res.sendFile(path.join(__dirname, '../app.js')));
 app.get('/style.css', (req, res) => res.sendFile(path.join(__dirname, '../style.css')));
-
 module.exports = app;

@@ -54,7 +54,7 @@ const db = {
       name,
       total_debt: debts,
       total_paid: paid,
-      remaining: Math.max(0, debts - paid),
+      remaining: debts - paid,
       history: trans || []
     };
   },
